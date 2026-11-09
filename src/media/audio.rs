@@ -22,7 +22,7 @@ pub const CHANNELS: usize = 2;
 /// 20 ms Opus frames.
 pub const FRAME: usize = 960;
 
-fn float_format() -> WAVEFORMATEX {
+pub(super) fn stereo_format() -> WAVEFORMATEX {
     WAVEFORMATEX {
         wFormatTag: 3, // WAVE_FORMAT_IEEE_FLOAT
         nChannels: CHANNELS as u16,
@@ -34,7 +34,7 @@ fn float_format() -> WAVEFORMATEX {
     }
 }
 
-struct EventHandle(HANDLE);
+pub(super) struct EventHandle(pub(super) HANDLE);
 impl Drop for EventHandle {
     fn drop(&mut self) {
         unsafe {
@@ -97,8 +97,12 @@ fn process_loopback_client() -> Result<IAudioClient> {
 }
 
 fn default_device(flow: EDataFlow) -> Result<IMMDevice> {
+    device(flow, eConsole)
+}
+
+pub(super) fn device(flow: EDataFlow, role: ERole) -> Result<IMMDevice> {
     let enumerator: IMMDeviceEnumerator = unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? };
-    Ok(unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole)? })
+    Ok(unsafe { enumerator.GetDefaultAudioEndpoint(flow, role)? })
 }
 
 pub struct AudioCapture {
@@ -138,7 +142,7 @@ fn capture_loop(
     stop: &AtomicBool,
     ready: &std::sync::mpsc::Sender<Result<()>>,
 ) -> Result<()> {
-    let fmt = float_format();
+    let fmt = stereo_format();
     let flags = AUDCLNT_STREAMFLAGS_LOOPBACK
         | AUDCLNT_STREAMFLAGS_EVENTCALLBACK
         | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
@@ -242,7 +246,7 @@ impl Drop for AudioPlayer {
 fn play_loop(rx: std::sync::mpsc::Receiver<Vec<u8>>, stop: &AtomicBool, volume: &AtomicU32) -> Result<()> {
     let dev = default_device(eRender)?;
     let client: IAudioClient = unsafe { dev.Activate(CLSCTX_ALL, None)? };
-    let fmt = float_format();
+    let fmt = stereo_format();
     unsafe {
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,

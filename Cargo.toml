@@ -1,6 +1,6 @@
 [package]
 name = "mystream"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Lightweight peer-to-peer screen sharing between friends, built to use as little GPU as possible."
 license = "MIT"
@@ -22,6 +22,7 @@ bytes = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 sha2 = "0.11"
 openh264 = "0.9.9"
+nnnoiseless = { version = "0.5.2", default-features = false }
 
 [dependencies.windows]
 version = "0.62"
@@ -54,6 +55,7 @@ features = [
     "Win32_System_Performance",
     "Win32_System_Console",
     "Win32_System_LibraryLoader",
+    "Win32_UI_Input_KeyboardAndMouse",
 ]
 
 [profile.release]

@@ -30,11 +30,13 @@ Et quand ton écran ne bouge pas ? MyStream n'encode rien et n'envoie rien. Zér
 
 | | |
 | --- | --- |
+| 🎙️ **Salons vocaux** | Parle avec tes potes sans délai : détection de voix ou appuyer-pour-parler, suppression du bruit |
+| 🏠 **Serveurs** | Une bande de potes = un serveur, avec ses salons. Un ami peut être dans plusieurs serveurs |
 | 🖥️ **Écran ou fenêtre** | Partage un écran entier ou une seule appli, curseur inclus |
 | 🔊 **Le son** | Le son de ton PC, sans écho (MyStream ne capte pas son propre son) |
 | 🤝 **Codes amis** | Envoie ton code `ms-…` une fois sur Discord ou WhatsApp, il est valable pour toujours |
 | 🔐 **Tes règles** | Pour chaque ami : *Demander*, *Toujours autoriser* ou *Bloqué* |
-| 👥 **Groupes** | « Copine », « Potes coop »… Choisis qui voit chaque partage |
+| 👥 **Groupes** | « Copine », « Potes coop »… Choisis qui voit chaque partage : un ami, un groupe ou tout un serveur |
 | 📸 **Captures** | Envoie une capture HD à un groupe, ou garde l'image du stream que tu regardes |
 | ⚡ **3 qualités** | Éco 720p30 · Standard 1080p30 · Fluide 1080p60 |
 | 🌍 **Sans serveur** | Connexion directe entre vous, chiffrée de bout en bout |
@@ -50,7 +52,8 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 | Fluide 1080p60 | ~ 1 % | ~ 10–20 % | < 1 % | ~ 4–9 Mb/s |
 | Écran immobile | 0 % | 0 % | ~ 0 % | ~ 0 |
 
-- **Mémoire** : environ 90 Mo au repos, 200 à 300 Mo pendant un partage ou un visionnage.
+- **Mémoire** : environ 90 Mo au repos, ~130 Mo dans un salon vocal, 200 à 300 Mo pendant un partage ou un visionnage.
+- **Vocal** : ~5 % d'un cœur de processeur en parlant (suppression du bruit comprise), ~40 kb/s par personne. Latence ≈ 80 ms + le trajet réseau.
 - **Côté spectateur** : environ 1 % du moteur 3D. Le décodage se fait sur la puce vidéo.
 - **Plusieurs spectateurs** : l'image est encodée une seule fois. Seul le débit envoyé est multiplié par le nombre de spectateurs.
 
@@ -64,6 +67,8 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 3. Clique sur **📋 Copier** à côté de ton code ami et envoie-le à tes potes.
 4. Ils collent ton code dans *Ajouter un ami*. Tu acceptes.
 5. Clique sur **▶ Démarrer le partage**. Tes amis voient un bouton rouge **Regarder** à côté de ton nom.
+
+**Parler** : clique sur **+** à gauche pour créer un serveur, invite tes amis, puis clique sur un salon vocal. Dans le salon, **Partager mon écran** diffuse à tous les membres, sans demande d'autorisation.
 
 **Astuces** : double-clic sur l'image = plein écran, `Échap` pour sortir. Clic droit sur un ami = ses droits.
 
@@ -87,6 +92,8 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 
 - **Pas de serveur MyStream.** Ton identité est une clé cryptographique créée sur ton PC. Tes amis te retrouvent grâce à l'infrastructure publique d'[iroh](https://iroh.computer). La connexion est directe dès que possible ; sinon elle passe par un relais qui ne voit que des données chiffrées.
 - **Une image = un flux réseau indépendant.** Une image en retard ne bloque pas les suivantes. Si un spectateur décroche, il repart de l'image complète suivante, sans ralentir les autres.
+- **La voix va directement de PC à PC.** Chaque participant envoie sa voix (Opus, 20 ms par paquet) à chacun des autres, sans serveur au milieu. Rien n'est enregistré.
+- **Un serveur n'est hébergé nulle part.** C'est juste un nom, une liste de membres et des noms de salons, que chaque membre garde chez lui. Les copies se mettent à jour quand deux membres se croisent. Les réglages du créateur sont signés avec sa clé : personne d'autre ne peut les modifier. Pas de messages, pas d'historique.
 - **L'interface dort.** Elle ne se redessine que lorsqu'il se passe quelque chose.
 
 ## 🗂️ Où sont mes fichiers ?
@@ -94,7 +101,7 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 | Quoi | Où |
 | --- | --- |
 | Captures envoyées et reçues | `Images\MyStream\` |
-| Amis, groupes, réglages | `%APPDATA%\MyStream\data.json` |
+| Amis, groupes, serveurs, réglages | `%APPDATA%\MyStream\data.json` |
 | Ton identité | `%APPDATA%\MyStream\secret.key` |
 
 > ⚠️ `secret.key` **est** ton identité. Ne le partage jamais. Si tu le perds, tes amis devront t'ajouter à nouveau.
@@ -113,21 +120,21 @@ cargo build --release
 
 | Commande | Rôle |
 | --- | --- |
-| `mystream selftest` | Test complet : deux identités locales via le vrai réseau (amis, partage, visionnage, capture) |
+| `mystream selftest` | Test complet : trois identités locales via le vrai réseau (amis, partage, visionnage, capture, serveur, vocal) |
 | `mystream bench [s] [fps] [hauteur] [kbps] [force]` | Capture + encodage seuls, avec statistiques |
 | `mystream loopback` | Capture → encodage → décodage, enregistre `loopback.png` |
 | `mystream audiotest` | Capture le son 5 s et le rejoue |
 | `mystream --profile <nom>` | Lance une identité séparée (plusieurs instances sur un PC) |
 
-Variables de test : `MYSTREAM_AUTOSTART=1` partage le premier écran au démarrage, `MYSTREAM_AUTOWATCH=1` regarde le premier ami en direct, `MYSTREAM_FORCE_SOFTWARE=1` simule un Windows « N » (moteur vidéo intégré).
+Variables de test : `MYSTREAM_AUTOSTART=1` partage le premier écran au démarrage, `MYSTREAM_AUTOWATCH=1` regarde le premier ami en direct, `MYSTREAM_AUTOJOIN=1` rejoint le premier salon vocal, `MYSTREAM_VOICE_TEST=1` laisse le micro toujours ouvert, `MYSTREAM_FORCE_SOFTWARE=1` simule un Windows « N » (moteur vidéo intégré).
 
 **Organisation du code**
 
 ```text
 src/
 ├── main.rs          point d'entrée, commandes de dev
-├── ui/              interface (egui) : mod.rs (écrans), theme.rs (design system)
-├── net.rs           réseau pair-à-pair (iroh) : amis, droits, diffusion
+├── ui/              interface (egui) : mod.rs (écrans), servers.rs (serveurs, vocal), theme.rs (design system)
+├── net.rs           réseau pair-à-pair (iroh) : amis, droits, diffusion, serveurs, vocal
 ├── store.rs         données locales et identité
 ├── selftest.rs      test de bout en bout
 ├── update.rs        mise à jour automatique (GitHub Releases)
@@ -138,7 +145,8 @@ src/
     ├── encoder.rs   encodeur H.264 matériel (Media Foundation)
     ├── decoder.rs   décodeur H.264 matériel
     ├── soft.rs      encodeur/décodeur OpenH264 intégré (secours)
-    └── audio.rs     capture et lecture du son, Opus
+    ├── audio.rs     capture et lecture du son, Opus
+    └── voice.rs     micro, suppression du bruit, détection de voix, mixage des voix
 ```
 
 ## 🗺️ Et après ?
@@ -153,6 +161,14 @@ src/
 - [x] Fenêtres claires pour ajouter un ami, accepter un spectateur, retirer un ami
 - [x] Page Paramètres (pseudo, code, volume, captures, mises à jour)
 
+### v3 — vocal et serveurs ✅ (0.3)
+
+- [x] Salons vocaux pair-à-pair, sans serveur et sans enregistrement
+- [x] Détection de voix ou appuyer-pour-parler (touche ou bouton de souris, même en jeu)
+- [x] Suppression du bruit (RNNoise), test du micro, volume par personne
+- [x] Serveurs : plusieurs bandes de potes, plusieurs salons, invitations
+- [x] Partage d'écran à tout un serveur, bouton « Regarder » dans le salon
+
 ### Ensuite
 
 - [ ] Notifications Windows natives (« Léa partage son écran »)
@@ -164,7 +180,8 @@ src/
 
 - [ ] Linux et macOS
 - [ ] Relais auto-hébergeable, réglable dans l'app
-- [ ] Groupes partagés, synchronisés entre membres
+- [ ] Choix du micro et de la sortie audio
+- [ ] Annulation d'écho (pour ceux qui n'ont pas de casque)
 - [ ] AV1 / HEVC sur les cartes compatibles
 - [ ] Son d'une seule application quand on partage une fenêtre
 

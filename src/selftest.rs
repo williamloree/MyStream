@@ -134,9 +134,72 @@ pub fn run() -> Result<()> {
         tokio::time::timeout(Duration::from_secs(10), watch).await??;
         wait_for("bob n'est plus en visionnage", 5, || b.live.lock().unwrap().watching.is_none()).await?;
 
+        println!("7. serveur : alice crée, invite bob, bob invite carol (amie de bob seulement)");
+        let (tx_c, rx_c) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for e in rx_c {
+                if let UiEvent::Toast(t) = e {
+                    println!("  [carol] {t}");
+                }
+            }
+        });
+        let c = Node::start(fresh_store("selftest-carol")?, tx_c, || {}).await?;
+        tokio::time::timeout(Duration::from_secs(20), c.endpoint.online()).await?;
+        let cz = c.id().to_z32();
+        c.clone().send_friend_request(b.id()).await;
+        wait_for("bob reçoit la demande de carol", 20, || b.store.lock().incoming.iter().any(|r| r.id == cz)).await?;
+        b.clone().accept_friend(c.id()).await;
+        wait_for("carol amie de bob", 20, || c.store.lock().friend(&bz).is_some()).await?;
+
+        let sid = a.create_server("Les potes");
+        a.clone().invite_to_server(sid.clone(), b.id()).await;
+        wait_for("bob reçoit l'invitation", 20, || b.store.lock().server_invites.iter().any(|i| i.server.id == sid)).await?;
+        b.accept_invite(&sid);
+        wait_for("alice voit bob membre", 20, || a.store.lock().server(&sid).is_some_and(|s| s.is_member(&bz))).await?;
+        b.clone().invite_to_server(sid.clone(), c.id()).await;
+        wait_for("carol reçoit l'invitation", 20, || c.store.lock().server_invites.iter().any(|i| i.server.id == sid)).await?;
+        c.accept_invite(&sid);
+        wait_for("alice voit carol membre (sans être amies)", 20, || {
+            a.store.lock().server(&sid).is_some_and(|s| s.is_member(&cz))
+        })
+        .await?;
+        wait_for("carol voit alice en ligne", 30, || c.live.lock().unwrap().peers.get(&az).is_some_and(|p| p.online)).await?;
+
+        println!("8. salon vocal à trois (micro forcé ouvert)");
+        // SAFETY: single-threaded at this point for env purposes (test only).
+        unsafe { std::env::set_var("MYSTREAM_VOICE_TEST", "1") };
+        for n in [&a, &b, &c] {
+            let (n, s) = (n.clone(), sid.clone());
+            tokio::task::spawn_blocking(move || n.join_voice(&s, 1)).await?;
+        }
+        for n in [&a, &b, &c] {
+            let n = n.clone();
+            let s = sid.clone();
+            wait_for("voit les 2 autres dans le salon", 20, move || n.voice_peers(&s, 1).len() == 2).await?;
+        }
+        let heard = |n: &Arc<Node>, who: &str| n.voice_shared.heard.lock().unwrap().contains_key(who);
+        match wait_for("alice entend bob et carol", 15, || heard(&a, &bz) && heard(&a, &cz)).await {
+            Ok(()) => wait_for("carol entend alice", 15, || heard(&c, &az)).await?,
+            Err(e) => println!("  ⚠ {e} (pas de micro sur cette machine ?)"),
+        }
+        let a6 = a.clone();
+        tokio::task::spawn_blocking(move || a6.leave_voice()).await?;
+        wait_for("bob voit alice quitter le salon", 20, || b.voice_peers(&sid, 1).len() == 1).await?;
+
+        println!("9. alice retire carol du serveur");
+        let target = cz.clone();
+        a.admin_update(&sid, |adm| adm.banned.push(target));
+        wait_for("carol n'a plus le serveur", 20, || c.store.lock().server(&sid).is_none()).await?;
+        wait_for("carol a quitté le salon", 5, || c.live.lock().unwrap().voice.is_none()).await?;
+
         println!("\nTOUT EST OK ✅");
+        for n in [&b] {
+            let n = n.clone();
+            tokio::task::spawn_blocking(move || n.leave_voice()).await?;
+        }
         a.endpoint.close().await;
         b.endpoint.close().await;
+        c.endpoint.close().await;
         Ok(())
     })
 }

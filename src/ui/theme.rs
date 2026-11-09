@@ -52,6 +52,55 @@ pub mod icon {
     pub const DOWNLOAD: char = '\u{E896}';
     pub const SEND: char = '\u{E724}';
     pub const INFO: char = '\u{E946}';
+    pub const MIC: char = '\u{E720}';
+    pub const HEADPHONE: char = '\u{E7F6}';
+    pub const HANGUP: char = '\u{E778}';
+    pub const HOME: char = '\u{E80F}';
+    pub const ADD: char = '\u{E710}';
+    pub const MORE: char = '\u{E712}';
+    pub const STAR: char = '\u{E734}';
+    pub const SPEAKER: char = '\u{E995}';
+}
+
+/// Icon button with an "off" state (red diagonal slash), for mic / headset.
+pub fn toggle_icon(ui: &mut egui::Ui, icon: char, off: bool, tooltip: &str, size: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        if off {
+            p.rect_filled(rect, CornerRadius::same(8), Color32::from_rgb(0x3A, 0x1E, 0x23));
+        } else if resp.hovered() {
+            p.rect_filled(rect, CornerRadius::same(8), ELEVATED_HOVER);
+        }
+        let color = if off { LIVE_HOVER } else if resp.hovered() { TEXT } else { MUTED };
+        p.text(rect.center(), egui::Align2::CENTER_CENTER, icon, icon_font(size * 0.47), color);
+        if off {
+            let r = size * 0.26;
+            let c = rect.center();
+            p.line_segment([c + vec2(-r, -r), c + vec2(r, r)], Stroke::new(2.0, LIVE_HOVER));
+        }
+    }
+    resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Small slashed icon (status, not clickable).
+pub fn status_icon(ui: &mut egui::Ui, icon: char, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    let p = ui.painter();
+    p.text(rect.center(), egui::Align2::CENTER_CENTER, icon, icon_font(size * 0.8), LIVE_HOVER);
+    let r = size * 0.38;
+    let c = rect.center();
+    p.line_segment([c + vec2(-r, -r), c + vec2(r, r)], Stroke::new(1.6, LIVE_HOVER));
+}
+
+/// Avatar with a green ring while the person talks.
+pub fn voice_avatar(ui: &mut egui::Ui, id: &str, name: &str, size: f32, speaking: bool, bg: Color32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    paint_avatar(ui.painter(), rect.shrink(3.5), id, name, None, bg);
+    if speaking {
+        ui.painter().circle_stroke(rect.center(), size / 2.0 - 1.25, Stroke::new(2.5, ONLINE));
+    }
+    resp
 }
 
 // ---------------------------------------------------------------- fonts & style

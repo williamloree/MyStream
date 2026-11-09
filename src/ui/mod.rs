@@ -1,6 +1,7 @@
 //! egui interface. The UI only repaints on events (new video frame, network
 //! event, user input), so it costs nothing while idle.
 
+mod servers;
 pub mod theme;
 
 use std::collections::HashMap;
@@ -19,6 +20,12 @@ use theme::{
     ACCENT, ACCENT_SOFT, BG, BORDER, CARD, ELEVATED, FAINT, INPUT, Kind, LIVE, MUTED, ONLINE, SIDEBAR, TEXT, icon,
 };
 
+#[derive(PartialEq, Clone)]
+enum View {
+    Home,
+    Server(String),
+}
+
 #[derive(PartialEq, Clone, Copy)]
 enum Page {
     Share,
@@ -30,6 +37,10 @@ enum Modal {
     Onboarding,
     AddFriend,
     RemoveFriend { id: String, name: String },
+    CreateServer,
+    Invite { sid: String },
+    ServerSettings { sid: String },
+    LeaveServer { sid: String },
 }
 
 struct Toast {
@@ -69,6 +80,7 @@ pub struct App {
     node: Arc<Node>,
     rt: tokio::runtime::Handle,
     events: std::sync::mpsc::Receiver<UiEvent>,
+    view: View,
     page: Page,
     sources: Vec<Source>,
     selected: usize,
@@ -82,6 +94,17 @@ pub struct App {
     requests: Vec<WatchRequest>,
     modal: Option<Modal>,
     modal_opened: bool,
+    /// Opened right after the current modal closes.
+    next_modal: Option<Modal>,
+    new_server_name: String,
+    new_channel: String,
+    rename_edit: String,
+    /// (server, friend) invitations sent this session.
+    invited: Vec<(String, String)>,
+    /// Waiting for a key press to bind push-to-talk.
+    binding_ptt: bool,
+    /// Microphone test from the settings page.
+    mic_test: Option<crate::media::voice::Mic>,
     texture: Option<egui::TextureHandle>,
     logo: Option<egui::TextureHandle>,
     last_frame: Option<(u32, u32, Vec<u8>)>,
@@ -92,9 +115,11 @@ pub struct App {
     last_pointer_pos: Option<egui::Pos2>,
     thumbs: Thumbs,
     /// Dev/test helpers: MYSTREAM_AUTOSTART=1 shares the first screen,
-    /// MYSTREAM_AUTOWATCH=1 watches the first friend who shares.
+    /// MYSTREAM_AUTOWATCH=1 watches the first friend who shares,
+    /// MYSTREAM_AUTOJOIN=1 joins the first voice channel of the first server.
     auto_start: bool,
     auto_watch: bool,
+    auto_join: bool,
     update: Arc<std::sync::Mutex<UpdateState>>,
     ctx: egui::Context,
 }
@@ -122,6 +147,7 @@ impl App {
             node,
             rt,
             events,
+            view: View::Home,
             page: Page::Share,
             sources: list_sources(),
             selected: 0,
@@ -135,6 +161,13 @@ impl App {
             requests: vec![],
             modal: (!onboarded).then_some(Modal::Onboarding),
             modal_opened: false,
+            next_modal: None,
+            new_server_name: String::new(),
+            new_channel: String::new(),
+            rename_edit: String::new(),
+            invited: vec![],
+            binding_ptt: false,
+            mic_test: None,
             texture: None,
             logo,
             last_frame: None,
@@ -146,6 +179,7 @@ impl App {
             thumbs: Thumbs { tex: HashMap::new(), tx, rx, requested: false },
             auto_start: std::env::var("MYSTREAM_AUTOSTART").is_ok(),
             auto_watch: std::env::var("MYSTREAM_AUTOWATCH").is_ok(),
+            auto_join: std::env::var("MYSTREAM_AUTOJOIN").is_ok(),
             update,
             ctx,
         }
@@ -176,12 +210,21 @@ impl App {
                 .find(|g| g.id == *id)
                 .map(|g| format!("Groupe « {} »", g.name))
                 .unwrap_or_else(|| "Groupe supprimé".into()),
+            Audience::Server(id) => self
+                .node
+                .store
+                .lock()
+                .server(id)
+                .map(|s| format!("Serveur « {} »", s.admin.name))
+                .unwrap_or_else(|| "Serveur supprimé".into()),
         }
     }
 
     fn audience_combo(&self, ui: &mut egui::Ui, salt: &str, value: &mut Audience) -> bool {
         let before = value.clone();
         let groups: Vec<(u64, String)> = self.node.store.lock().groups.iter().map(|g| (g.id, g.name.clone())).collect();
+        let servers: Vec<(String, String)> =
+            self.node.store.lock().servers.iter().map(|s| (s.id.clone(), s.admin.name.clone())).collect();
         egui::ComboBox::from_id_salt(salt)
             .width(220.0)
             .selected_text(self.audience_label(value))
@@ -189,6 +232,9 @@ impl App {
                 ui.selectable_value(value, Audience::AllFriends, "Tous mes amis");
                 for (id, name) in groups {
                     ui.selectable_value(value, Audience::Group(id), format!("Groupe « {name} »"));
+                }
+                for (id, name) in servers {
+                    ui.selectable_value(value, Audience::Server(id), format!("Serveur « {name} »"));
                 }
             });
         *value != before
@@ -274,6 +320,7 @@ impl App {
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(SIDEBAR).inner_margin(Margin::same(12)))
             .show(ui, |ui| {
+                self.voice_panel(ui);
                 ui.horizontal(|ui| {
                     let w = ui.available_width() - 40.0;
                     if theme::button_w(ui, Kind::Primary, Some(icon::ADD_FRIEND), "Ajouter un ami", 38.0, true, Some(w)).clicked() {
@@ -305,6 +352,7 @@ impl App {
 
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             egui::Frame::new().inner_margin(Margin::symmetric(12, 0)).show(ui, |ui| {
+                self.invitations(ui);
                 if !incoming.is_empty() {
                     ui.add_space(4.0);
                     theme::section(ui, &format!("Demandes d'ami · {}", incoming.len()));
@@ -1023,6 +1071,8 @@ impl App {
             });
         });
         ui.add_space(12.0);
+        self.voice_settings(ui);
+        ui.add_space(12.0);
         theme::card(ui, |ui| {
             ui.label(theme::strong("Son & captures", 16.0));
             ui.add_space(4.0);
@@ -1060,6 +1110,107 @@ impl App {
                 },
             );
         });
+    }
+
+    fn voice_settings(&mut self, ui: &mut egui::Ui) {
+        use crate::media::voice::{Mic, key_name, pressed_key};
+        let shared = self.node.voice_shared.clone();
+        let mut v = self.node.store.lock().settings.voice.clone();
+        let before = format!("{v:?}");
+        let in_voice = self.node.live.lock().unwrap().voice.is_some();
+        theme::card(ui, |ui| {
+            ui.label(theme::strong("Voix", 16.0));
+            ui.add_space(4.0);
+            setting_row(
+                ui,
+                "Mode d'activation",
+                if v.push_to_talk {
+                    "Ton micro ne s'ouvre que pendant que tu maintiens la touche."
+                } else {
+                    "Ton micro s'ouvre tout seul quand tu parles."
+                },
+                |ui| {
+                    theme::segmented(ui, &mut v.push_to_talk, &[(false, "Détection de voix"), (true, "Appuyer pour parler")]);
+                },
+            );
+            divider(ui);
+            if v.push_to_talk {
+                setting_row(ui, "Touche", "Fonctionne même quand MyStream est en arrière-plan (en jeu).", |ui| {
+                    if self.binding_ptt {
+                        ui.ctx().request_repaint_after(Duration::from_millis(30));
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            self.binding_ptt = false;
+                        } else if let Some(k) = pressed_key() {
+                            v.ptt_key = k;
+                            self.binding_ptt = false;
+                        }
+                        theme::button(ui, Kind::Primary, None, "Appuie sur une touche…", 32.0, true);
+                    } else if theme::button(ui, Kind::Secondary, None, &key_name(v.ptt_key), 32.0, true)
+                        .on_hover_text("Clique puis appuie sur la touche (ou un bouton de souris) voulue")
+                        .clicked()
+                    {
+                        self.binding_ptt = true;
+                    }
+                });
+            } else {
+                setting_row(ui, "Sensibilité", "Monte le curseur si ton micro capte trop de bruit, baisse-le s'il te coupe.", |ui| {
+                    ui.spacing_mut().slider_width = 180.0;
+                    ui.add(egui::Slider::new(&mut v.threshold, 0..=100).show_value(false));
+                });
+            }
+            divider(ui);
+            setting_row(ui, "Suppression du bruit", "Retire clavier, ventilo et bruits de fond (RNNoise, très léger).", |ui| {
+                theme::toggle(ui, &mut v.denoise);
+            });
+            divider(ui);
+            setting_row(ui, "Volume des voix", "Le volume de tes potes dans les salons vocaux.", |ui| {
+                ui.spacing_mut().slider_width = 180.0;
+                ui.add(egui::Slider::new(&mut v.volume, 0..=200).suffix(" %"));
+            });
+            divider(ui);
+            let testing = self.mic_test.is_some();
+            setting_row(ui, "Tester mon micro", "La barre bouge quand tu parles. Elle devient verte quand le micro s'ouvre.", |ui| {
+                let label = if testing { "Arrêter" } else { "Tester" };
+                if theme::button(ui, Kind::Secondary, Some(icon::MIC), label, 32.0, !in_voice || testing).clicked() {
+                    if testing {
+                        self.mic_test = None;
+                    } else {
+                        let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+                        match Mic::start(shared.clone(), repaint, |_| {}) {
+                            Ok(m) => self.mic_test = Some(m),
+                            Err(e) => self.toast(format!("Micro indisponible : {e}")),
+                        }
+                    }
+                }
+            });
+            if testing || in_voice {
+                ui.ctx().request_repaint_after(Duration::from_millis(50));
+                let level = shared.level.load(Ordering::Relaxed) as f32 / 100.0;
+                let open = shared.speaking.load(Ordering::Relaxed);
+                let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), Sense::hover());
+                ui.painter().rect_filled(rect, CornerRadius::same(5), INPUT);
+                let mut fill = rect;
+                fill.set_width(rect.width() * level);
+                ui.painter().rect_filled(fill, CornerRadius::same(5), if open { ONLINE } else { FAINT });
+                if !v.push_to_talk {
+                    // Same mapping as voice::threshold_db (-70 + t/2 dB over a 70 dB scale).
+                    let x = rect.left() + rect.width() * (v.threshold as f32 * 0.5 / 70.0);
+                    ui.painter().vline(x, rect.y_range().expand(3.0), Stroke::new(2.0, TEXT));
+                }
+            }
+        });
+        if format!("{v:?}") != before {
+            shared.push_to_talk.store(v.push_to_talk, Ordering::Relaxed);
+            shared.ptt_key.store(v.ptt_key, Ordering::Relaxed);
+            shared.threshold.store(v.threshold, Ordering::Relaxed);
+            shared.denoise.store(v.denoise, Ordering::Relaxed);
+            shared.volume.store(v.volume, Ordering::Relaxed);
+            self.node.store.update(|d| {
+                // Per-person volumes are edited elsewhere: keep the stored ones.
+                v.gains = std::mem::take(&mut d.settings.voice.gains);
+                d.settings.voice = v;
+            });
+        }
     }
 
     // ================================================================ watch view
@@ -1414,6 +1565,11 @@ impl App {
                     close = true;
                 }
             }
+            Modal::CreateServer | Modal::Invite { .. } | Modal::ServerSettings { .. } | Modal::LeaveServer { .. } => {
+                let m = self.modal.take().unwrap();
+                close = self.server_modal(ctx, &m, first);
+                self.modal = Some(m);
+            }
             Modal::RemoveFriend { id, name } => {
                 let (id, name) = (id.clone(), name.clone());
                 let resp = egui::Modal::new(Id::unique("remove_friend")).frame(Self::modal_frame()).show(ctx, |ui| {
@@ -1439,7 +1595,8 @@ impl App {
             }
         }
         if close {
-            self.modal = None;
+            self.modal = self.next_modal.take();
+            self.modal_opened = self.modal.is_some();
         }
     }
 
@@ -1493,12 +1650,23 @@ impl App {
                 self.rt.spawn(self.node.clone().watch(id));
             }
         }
+        if self.auto_join && self.node.live.lock().unwrap().online {
+            self.auto_join = false;
+            let first = self.node.store.lock().servers.first().map(|s| (s.id.clone(), s.admin.channels[0].id));
+            if let Some((sid, cid)) = first {
+                self.view = View::Server(sid.clone());
+                self.join_voice(&sid, cid);
+            }
+        }
     }
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Node methods spawn tasks: give the UI thread the runtime context.
+        let rt = self.rt.clone();
+        let _rt = rt.enter();
         self.handle_events();
         self.dev_auto();
         self.update_texture(&ctx);
@@ -1517,19 +1685,41 @@ impl eframe::App for App {
             self.set_fullscreen(&ctx, false);
         }
 
+        let server = match &self.view {
+            View::Server(id) => self.node.store.lock().server(id).cloned(),
+            View::Home => None,
+        };
+        if server.is_none() {
+            self.view = View::Home;
+        }
+        if self.view != View::Home || self.page != Page::Settings {
+            self.mic_test = None;
+            self.binding_ptt = false;
+        }
         if !self.fullscreen {
+            egui::Panel::left("rail")
+                .exact_size(72.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(egui::Frame::new().fill(servers::RAIL))
+                .show(ui, |ui| self.rail(ui));
             egui::Panel::left("sidebar")
-                .exact_size(290.0)
+                .exact_size(280.0)
                 .resizable(false)
                 .show_separator_line(false)
                 .frame(egui::Frame::new().fill(SIDEBAR))
-                .show(ui, |ui| self.sidebar(ui));
+                .show(ui, |ui| match &server {
+                    Some(s) => self.server_sidebar(ui, s),
+                    None => self.sidebar(ui),
+                });
         }
         egui::CentralPanel::no_frame()
             .frame(egui::Frame::new().fill(if in_watch { Color32::BLACK } else { BG }))
             .show(ui, |ui| {
                 if in_watch {
                     self.watch_view(ui);
+                } else if let Some(s) = &server {
+                    self.server_view(ui, s);
                 } else {
                     self.main_view(ui);
                 }
@@ -1540,6 +1730,9 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        let _rt = self.rt.enter();
+        self.mic_test = None;
+        self.node.leave_voice();
         self.node.stop_watching();
         self.node.stop_host();
     }
