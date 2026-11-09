@@ -58,8 +58,9 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 
 ## 🚀 Démarrer en 30 secondes
 
-1. Télécharge `mystream.exe` dans les [**Releases**](../../releases). Aucune installation.
-2. Lance-le et **autorise-le dans le pare-feu Windows**. Sans ça, la connexion passe par un relais plus lent.
+1. Télécharge **`MyStream-Setup.exe`** dans les [**Releases**](../../releases) et lance-le. Il installe tout : raccourcis, et autorisation dans le pare-feu Windows (connexions directes, plus rapides).
+   *Version portable* : `mystream.exe` seul marche aussi, sans installation. Accepte alors la demande du pare-feu au premier lancement.
+2. Lance MyStream.
 3. Clique sur **📋 Copier** à côté de ton code ami et envoie-le à tes potes.
 4. Ils collent ton code dans *Ajouter un ami*. Tu acceptes.
 5. Clique sur **▶ Démarrer le partage**. Tes amis voient un bouton rouge **Regarder** à côté de ton nom.
@@ -68,7 +69,7 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 
 **Prérequis** : Windows 10 (version 2004 ou plus récente) ou Windows 11, et une carte graphique de moins de 10 ans environ. NVIDIA, AMD et Intel sont tous pris en charge.
 
-> 🧩 **Windows « N » ?** Ces éditions européennes n'ont pas les composants multimédia (Media Feature Pack). Au premier lancement, MyStream propose de **les installer automatiquement** : accepte la demande administrateur, attends quelques minutes, puis redémarre. Sinon, à la main : *Paramètres → Applications → Fonctionnalités facultatives → Ajouter une fonctionnalité → **Media Feature Pack***.
+> 🧩 **Windows « N », vieux PC, machine virtuelle ?** Rien à installer. Sans encodeur vidéo matériel ou sans les composants multimédia de Windows, MyStream passe automatiquement sur son **moteur vidéo intégré** (OpenH264). Il utilise un peu de processeur à la place de la carte graphique (~2 % d'un PC récent), et il est limité à 720p30.
 
 > 🔄 **Mises à jour automatiques** : au démarrage, MyStream regarde s'il existe une version plus récente sur GitHub. Si oui, un bandeau te propose de mettre à jour en un clic. Le fichier est vérifié (SHA-256), remplacé, et l'app redémarre toute seule.
 
@@ -100,7 +101,7 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 
 ## 🛠️ Pour les développeurs
 
-**Compiler** : il faut [Rust](https://rustup.rs), les Visual Studio Build Tools (C++) et CMake.
+**Compiler** : il faut [Rust](https://rustup.rs), les Visual Studio Build Tools (C++) et CMake. [NASM](https://nasm.us) est conseillé : sans lui, le moteur vidéo intégré est compilé sans ses optimisations. L'installeur se construit avec [Inno Setup](https://jrsoftware.org/isinfo.php) (`installer/mystream.iss`).
 
 ```powershell
 $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"   # seulement avec CMake 4.x
@@ -118,7 +119,7 @@ cargo build --release
 | `mystream audiotest` | Capture le son 5 s et le rejoue |
 | `mystream --profile <nom>` | Lance une identité séparée (plusieurs instances sur un PC) |
 
-Variables de test : `MYSTREAM_AUTOSTART=1` partage le premier écran au démarrage, `MYSTREAM_AUTOWATCH=1` regarde le premier ami en direct.
+Variables de test : `MYSTREAM_AUTOSTART=1` partage le premier écran au démarrage, `MYSTREAM_AUTOWATCH=1` regarde le premier ami en direct, `MYSTREAM_FORCE_SOFTWARE=1` simule un Windows « N » (moteur vidéo intégré).
 
 **Organisation du code**
 
@@ -129,12 +130,14 @@ src/
 ├── net.rs           réseau pair-à-pair (iroh) : amis, droits, diffusion
 ├── store.rs         données locales et identité
 ├── selftest.rs      test de bout en bout
+├── update.rs        mise à jour automatique (GitHub Releases)
 └── media/
     ├── capture.rs   capture Windows.Graphics.Capture
     ├── d3d.rs       Direct3D 11 et conversion couleur sur GPU
     ├── pipeline.rs  capture → conversion → encodage
     ├── encoder.rs   encodeur H.264 matériel (Media Foundation)
     ├── decoder.rs   décodeur H.264 matériel
+    ├── soft.rs      encodeur/décodeur OpenH264 intégré (secours)
     └── audio.rs     capture et lecture du son, Opus
 ```
 

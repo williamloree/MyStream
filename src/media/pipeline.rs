@@ -11,6 +11,26 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 use super::capture::{Capturer, SourceKind, copy_region};
 use super::d3d::{Device, VideoConverter, target_size};
 use super::encoder::{EncodedFrame, Encoder, EncoderConfig, com_init};
+use super::soft::SoftEncoder;
+
+/// Hardware encoder when available, else the built-in software one.
+enum VideoEncoder {
+    Hw(Encoder),
+    Soft(SoftEncoder),
+}
+
+impl VideoEncoder {
+    fn encode(&mut self, nv12: &ID3D11Texture2D, ts: u64, keyframe: bool) -> Result<bool> {
+        match self {
+            Self::Hw(e) => e.encode(nv12, ts, keyframe),
+            Self::Soft(e) => e.encode(nv12, ts, keyframe),
+        }
+    }
+}
+
+/// Software encoding is capped to keep CPU use reasonable.
+const SOFT_MAX_HEIGHT: u32 = 720;
+const SOFT_MAX_FPS: u32 = 30;
 
 #[derive(Clone, Debug)]
 pub struct VideoSettings {
@@ -101,7 +121,7 @@ const RING: usize = 4;
 fn run(
     source: SourceKind,
     settings: VideoSettings,
-    mut on_frame: impl FnMut(EncodedFrame) + Send + 'static,
+    on_frame: impl FnMut(EncodedFrame) + Send + 'static,
     stop: Arc<AtomicBool>,
     keyframe: Arc<AtomicBool>,
     stats: Arc<Stats>,
@@ -111,18 +131,37 @@ fn run(
     let dev = Device::new()?;
     let mut cap = Capturer::new(dev.clone(), &source, settings.fps)?;
     let (src_w, src_h) = cap.size();
-    let (out_w, out_h) = target_size(src_w, src_h, settings.max_height);
+    let (mut out_w, mut out_h) = target_size(src_w, src_h, settings.max_height);
 
-    let stats_enc = stats.clone();
-    let encoder = Encoder::new(
+    type Sink = Arc<std::sync::Mutex<Box<dyn FnMut(EncodedFrame) + Send>>>;
+    let on_frame: Sink = Arc::new(std::sync::Mutex::new(Box::new(on_frame)));
+    let output = |stats: Arc<Stats>, on_frame: Sink| {
+        move |f: EncodedFrame| {
+            stats.encoded.fetch_add(1, Ordering::Relaxed);
+            stats.bytes.fetch_add(f.data.len() as u64, Ordering::Relaxed);
+            (on_frame.lock().unwrap())(f)
+        }
+    };
+    let mut fps = settings.fps;
+    let hw = Encoder::new(
         &dev,
-        &EncoderConfig { width: out_w, height: out_h, fps: settings.fps, bitrate: settings.bitrate },
-        move |f| {
-            stats_enc.encoded.fetch_add(1, Ordering::Relaxed);
-            stats_enc.bytes.fetch_add(f.data.len() as u64, Ordering::Relaxed);
-            on_frame(f)
-        },
-    )?;
+        &EncoderConfig { width: out_w, height: out_h, fps, bitrate: settings.bitrate },
+        output(stats.clone(), on_frame.clone()),
+    );
+    let (mut encoder, encoder_name) = match hw {
+        Ok(e) => {
+            let name = e.name.clone();
+            (VideoEncoder::Hw(e), name)
+        }
+        Err(e) => {
+            tracing::warn!("encodeur matériel indisponible ({e:#}), passage à OpenH264");
+            (out_w, out_h) = target_size(src_w, src_h, settings.max_height.min(SOFT_MAX_HEIGHT));
+            fps = fps.min(SOFT_MAX_FPS);
+            let cfg = EncoderConfig { width: out_w, height: out_h, fps, bitrate: settings.bitrate };
+            let soft = SoftEncoder::new(&dev, &cfg, output(stats.clone(), on_frame.clone()))?;
+            (VideoEncoder::Soft(soft), "OpenH264 (logiciel)".to_string())
+        }
+    };
 
     // Own copy of the latest captured frame: lets the capture pool reuse its
     // buffers immediately, and lets us re-encode a keyframe when the screen is
@@ -139,10 +178,10 @@ fn run(
     let mut content = (src_w, src_h);
     let mut have_frame = false;
 
-    let _ = info_tx.send(Ok(VideoInfo { width: out_w, height: out_h, encoder_name: encoder.name.clone() }));
+    let _ = info_tx.send(Ok(VideoInfo { width: out_w, height: out_h, encoder_name }));
 
     let start = Instant::now();
-    let interval = Duration::from_secs_f64(1.0 / settings.fps as f64);
+    let interval = Duration::from_secs_f64(1.0 / fps as f64);
     let mut next = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();

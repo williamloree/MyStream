@@ -30,7 +30,38 @@ struct GpuOut {
     h: u32,
 }
 
-pub struct Decoder {
+/// H.264 decoder: Media Foundation (hardware, then software) when present,
+/// otherwise the built-in OpenH264.
+pub enum Decoder {
+    Mf(MfDecoder),
+    Soft(super::soft::SoftDecoder),
+}
+
+impl Decoder {
+    pub fn new() -> Result<Self> {
+        if super::soft::media_foundation_available() {
+            match MfDecoder::new() {
+                Ok(d) => return Ok(Self::Mf(d)),
+                Err(e) => tracing::warn!("décodeur Media Foundation indisponible ({e:#}), passage à OpenH264"),
+            }
+        }
+        Ok(Self::Soft(super::soft::SoftDecoder::new()?))
+    }
+
+    pub fn hardware(&self) -> bool {
+        matches!(self, Self::Mf(d) if d.hardware)
+    }
+
+    /// Feeds one access unit, returns the newest decoded frame.
+    pub fn decode(&mut self, data: &[u8], timestamp_us: u64, width: u32, height: u32) -> Result<Option<DecodedFrame>> {
+        match self {
+            Self::Mf(d) => d.decode(data, timestamp_us, width, height),
+            Self::Soft(d) => d.decode(data),
+        }
+    }
+}
+
+pub struct MfDecoder {
     transform: IMFTransform,
     dev: Option<Device>,
     _manager: Option<IMFDXGIDeviceManager>,
@@ -39,9 +70,9 @@ pub struct Decoder {
     stride: u32,
     pub hardware: bool,
 }
-unsafe impl Send for Decoder {}
+unsafe impl Send for MfDecoder {}
 
-impl Decoder {
+impl MfDecoder {
     pub fn new() -> Result<Self> {
         match Self::create(true) {
             Ok(d) => Ok(d),

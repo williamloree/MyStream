@@ -77,6 +77,25 @@ impl Device {
         tex.context("CreateTexture2D")
     }
 
+    /// CPU-readable texture (GPU → CPU copies).
+    pub fn texture_staging(&self, width: u32, height: u32, format: DXGI_FORMAT) -> Result<ID3D11Texture2D> {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: width,
+            Height: height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: format,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_STAGING,
+            BindFlags: 0,
+            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+            MiscFlags: 0,
+        };
+        let mut tex = None;
+        unsafe { self.device.CreateTexture2D(&desc, None, Some(&mut tex))? };
+        tex.context("CreateTexture2D staging")
+    }
+
     /// Copies a BGRA texture to CPU memory as tightly packed RGBA.
     pub fn read_bgra_as_rgba(&self, tex: &ID3D11Texture2D) -> Result<(u32, u32, Vec<u8>)> {
         let mut desc = D3D11_TEXTURE2D_DESC::default();

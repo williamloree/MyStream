@@ -40,9 +40,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_app(profile: Option<&str>) -> anyhow::Result<()> {
-    if !media_foundation_available() {
-        return Ok(());
-    }
     update::cleanup();
     let store = store::Store::open(profile)?;
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
@@ -73,85 +70,6 @@ fn run_app(profile: Option<&str>) -> anyhow::Result<()> {
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     rt.shutdown_timeout(std::time::Duration::from_secs(1));
     Ok(())
-}
-
-/// Windows "N" editions lack Media Foundation (mfplat.dll). It is
-/// delay-loaded (see build.rs), so we can check for it and install it.
-fn media_foundation_available() -> bool {
-    use windows::Win32::System::LibraryLoader::LoadLibraryW;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        IDYES, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_YESNO, MessageBoxW,
-    };
-    use windows::core::{HSTRING, w};
-    if unsafe { LoadLibraryW(w!("mfplat.dll")) }.is_ok() {
-        return true;
-    }
-    let title = w!("MyStream — composant Windows manquant");
-    let ask = |text: &str, style| unsafe { MessageBoxW(None, &HSTRING::from(text), title, style) };
-    let answer = ask(
-        "Il manque les composants multimédia de Windows (Media Feature Pack).\n\n\
-         C'est normal sur les éditions « N » de Windows.\n\n\
-         L'installer automatiquement maintenant ?\n\
-         (Windows va demander l'autorisation administrateur, puis télécharger le pack : quelques minutes.)",
-        MB_YESNO | MB_ICONWARNING,
-    );
-    if answer != IDYES {
-        return false;
-    }
-    match install_media_feature_pack() {
-        Ok(()) => {
-            let r = ask(
-                "Media Feature Pack installé ✅\n\nRedémarre le PC, puis relance MyStream.\n\nRedémarrer maintenant ?",
-                MB_YESNO | MB_ICONINFORMATION,
-            );
-            if r == IDYES {
-                let _ = std::process::Command::new("shutdown").args(["/r", "/t", "0"]).spawn();
-            }
-        }
-        Err(e) => {
-            ask(
-                &format!(
-                    "L'installation automatique a échoué ({e}).\n\n\
-                     Installe-le à la main : Paramètres → Applications → Fonctionnalités facultatives → \
-                     Ajouter une fonctionnalité → « Media Feature Pack », puis redémarre le PC.\n\n\
-                     La page des Paramètres va s'ouvrir."
-                ),
-                MB_OK | MB_ICONERROR,
-            );
-            let _ = std::process::Command::new("explorer").arg("ms-settings:optionalfeatures").spawn();
-        }
-    }
-    false
-}
-
-/// Runs DISM elevated (UAC prompt) to add the Media Feature Pack capability.
-fn install_media_feature_pack() -> anyhow::Result<()> {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject};
-    use windows::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    use windows::core::w;
-    let mut info = SHELLEXECUTEINFOW {
-        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-        fMask: SEE_MASK_NOCLOSEPROCESS,
-        lpVerb: w!("runas"),
-        lpFile: w!("dism.exe"),
-        lpParameters: w!("/Online /Add-Capability /CapabilityName:Media.MediaFeaturePack~~~~0.0.1.0 /NoRestart"),
-        nShow: SW_SHOWNORMAL.0,
-        ..Default::default()
-    };
-    unsafe { ShellExecuteExW(&mut info) }.map_err(|_| anyhow::anyhow!("autorisation refusée"))?;
-    let mut code = 1u32;
-    unsafe {
-        WaitForSingleObject(info.hProcess, INFINITE);
-        let _ = GetExitCodeProcess(info.hProcess, &mut code);
-        let _ = CloseHandle(info.hProcess);
-    }
-    // 3010 = success, reboot required.
-    match code {
-        0 | 3010 => Ok(()),
-        c => anyhow::bail!("DISM code {c}"),
-    }
 }
 
 fn app_icon() -> std::sync::Arc<eframe::egui::IconData> {
@@ -248,7 +166,7 @@ fn loopback() -> anyhow::Result<()> {
                 break;
             }
         }
-        Ok((n, last, d.hardware))
+        Ok((n, last, d.hardware()))
     });
     let (n, last, hw) = dec.join().unwrap()?;
     drop(pipe);

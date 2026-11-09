@@ -91,6 +91,9 @@ impl Encoder {
         cfg: &EncoderConfig,
         on_output: impl FnMut(EncodedFrame) + Send + 'static,
     ) -> Result<Self> {
+        if !super::soft::media_foundation_available() {
+            bail!("Media Foundation absent");
+        }
         mf_startup();
         let output_info = MFT_REGISTER_TYPE_INFO {
             guidMajorType: MFMediaType_Video,

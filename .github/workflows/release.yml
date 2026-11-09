@@ -17,12 +17,25 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install NASM (fast OpenH264) and Inno Setup
+        run: |
+          choco install nasm innosetup -y --no-progress
+          echo "C:\Program Files\NASM" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       - run: cargo build --release
+      - name: Build installer
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$version" installer\mystream.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: mystream-windows
-          path: target/release/mystream.exe
+          path: |
+            target/release/mystream.exe
+            target/installer/MyStream-Setup.exe
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/mystream.exe
+          files: |
+            target/installer/MyStream-Setup.exe
+            target/release/mystream.exe
