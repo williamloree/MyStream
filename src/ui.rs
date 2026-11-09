@@ -11,6 +11,7 @@ use eframe::egui::{self, Color32, RichText};
 use crate::media::capture::{Source, grab_once, list_sources};
 use crate::net::{Audience, Node, UiEvent};
 use crate::store::{Permission, Quality, friend_code, parse_friend_code};
+use crate::update::{self, Release};
 
 const ACCENT: Color32 = Color32::from_rgb(88, 101, 242);
 const LIVE: Color32 = Color32::from_rgb(237, 66, 69);
@@ -26,6 +27,14 @@ struct Toast {
     text: String,
     at: Instant,
     path: Option<PathBuf>,
+}
+
+enum UpdateState {
+    None,
+    Available(Release),
+    Installing(String),
+    Done,
+    Failed(String),
 }
 
 struct WatchRequest {
@@ -57,11 +66,29 @@ pub struct App {
     /// MYSTREAM_AUTOWATCH=1 watches the first friend who shares.
     auto_start: bool,
     auto_watch: bool,
+    update: Arc<std::sync::Mutex<UpdateState>>,
 }
 
 impl App {
-    pub fn new(node: Arc<Node>, rt: tokio::runtime::Handle, events: std::sync::mpsc::Receiver<UiEvent>) -> Self {
+    pub fn new(
+        node: Arc<Node>,
+        rt: tokio::runtime::Handle,
+        events: std::sync::mpsc::Receiver<UiEvent>,
+        ctx: egui::Context,
+    ) -> Self {
         let name = node.store.lock().name.clone();
+        let update = Arc::new(std::sync::Mutex::new(UpdateState::None));
+        let u = update.clone();
+        rt.spawn(async move {
+            match update::check().await {
+                Ok(Some(r)) => {
+                    *u.lock().unwrap() = UpdateState::Available(r);
+                    ctx.request_repaint();
+                }
+                Ok(None) => {}
+                Err(e) => tracing::info!("vérification de mise à jour impossible : {e}"),
+            }
+        });
         Self {
             node,
             rt,
@@ -83,6 +110,7 @@ impl App {
             fps: (Instant::now(), 0, 0.0),
             auto_start: std::env::var("MYSTREAM_AUTOSTART").is_ok(),
             auto_watch: std::env::var("MYSTREAM_AUTOWATCH").is_ok(),
+            update,
         }
     }
 
@@ -166,6 +194,70 @@ impl App {
                 ui.label(RichText::new("●").color(c));
             });
         });
+    }
+
+    // ---------------------------------------------------------------- update banner
+
+    fn update_banner(&mut self, ui: &mut egui::Ui) {
+        let mut state = self.update.lock().unwrap();
+        match &*state {
+            UpdateState::None => {}
+            UpdateState::Available(r) => {
+                let r = r.clone();
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "⬆ Nouvelle version v{} disponible (tu as v{})",
+                            r.version,
+                            env!("CARGO_PKG_VERSION")
+                        ))
+                        .strong(),
+                    );
+                    if ui.button("Mettre à jour").clicked() {
+                        *state = UpdateState::Installing(r.version.clone());
+                        let (u, ctx) = (self.update.clone(), ui.ctx().clone());
+                        self.rt.spawn(async move {
+                            let next = match update::install(&r).await {
+                                Ok(()) => UpdateState::Done,
+                                Err(e) => UpdateState::Failed(e.to_string()),
+                            };
+                            *u.lock().unwrap() = next;
+                            ctx.request_repaint();
+                        });
+                    }
+                    ui.hyperlink_to("Nouveautés", update::RELEASES_URL);
+                    if ui.button("Plus tard").clicked() {
+                        *state = UpdateState::None;
+                    }
+                });
+            }
+            UpdateState::Installing(v) => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(format!("Téléchargement de la v{v}…"));
+                });
+            }
+            UpdateState::Done => {
+                // Restart on the new exe.
+                *state = UpdateState::None;
+                self.node.stop_watching();
+                self.node.stop_host();
+                match update::relaunch() {
+                    Ok(()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
+                    Err(e) => *state = UpdateState::Failed(format!("redémarrage impossible : {e}")),
+                }
+            }
+            UpdateState::Failed(e) => {
+                let e = e.clone();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("Mise à jour échouée : {e}")).color(LIVE));
+                    ui.hyperlink_to("Télécharger à la main", update::RELEASES_URL);
+                    if ui.button("OK").clicked() {
+                        *state = UpdateState::None;
+                    }
+                });
+            }
+        }
     }
 
     // ---------------------------------------------------------------- friends panel
@@ -788,6 +880,7 @@ impl eframe::App for App {
                 ui.add_space(4.0);
                 self.top_bar(ui);
                 ui.add_space(4.0);
+                self.update_banner(ui);
             });
             egui::Panel::left("friends").resizable(true).default_size(260.0).min_size(200.0).show(ui, |ui| {
                 self.friends_panel(ui);
