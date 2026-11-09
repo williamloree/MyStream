@@ -1,6 +1,6 @@
 [package]
 name = "mystream"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Lightweight peer-to-peer screen sharing between friends, built to use as little GPU as possible."
 license = "MIT"
@@ -50,6 +50,7 @@ features = [
     "Win32_UI_HiDpi",
     "Win32_System_Performance",
     "Win32_System_Console",
+    "Win32_System_LibraryLoader",
 ]
 
 [profile.release]

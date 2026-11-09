@@ -68,6 +68,8 @@ Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuie
 
 **Prérequis** : Windows 10 (version 2004 ou plus récente) ou Windows 11, et une carte graphique de moins de 10 ans environ. NVIDIA, AMD et Intel sont tous pris en charge.
 
+> 🧩 **Windows « N » ?** (message « mfplat.dll introuvable ») Ces éditions n'ont pas les composants multimédia. Installe-les une fois : *Paramètres → Applications → Fonctionnalités facultatives → Ajouter une fonctionnalité → **Media Feature Pack***, puis redémarre. MyStream te propose d'ouvrir cette page directement.
+
 ## 🧠 Comment ça marche
 
 ```text

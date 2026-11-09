@@ -1,0 +1,4 @@
+# Static C runtime: no "VCRUNTIME140.dll introuvable" on PCs without the
+# Visual C++ Redistributable.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

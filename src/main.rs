@@ -39,6 +39,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_app(profile: Option<&str>) -> anyhow::Result<()> {
+    if !media_foundation_available() {
+        return Ok(());
+    }
     let store = store::Store::open(profile)?;
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
     let handle = rt.handle().clone();
@@ -68,6 +71,34 @@ fn run_app(profile: Option<&str>) -> anyhow::Result<()> {
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     rt.shutdown_timeout(std::time::Duration::from_secs(1));
     Ok(())
+}
+
+/// Windows "N" editions lack Media Foundation (mfplat.dll). It is
+/// delay-loaded (see build.rs), so we can check for it and explain the fix.
+fn media_foundation_available() -> bool {
+    use windows::Win32::System::LibraryLoader::LoadLibraryW;
+    use windows::Win32::UI::WindowsAndMessaging::{IDYES, MB_ICONWARNING, MB_YESNO, MessageBoxW};
+    use windows::core::w;
+    if unsafe { LoadLibraryW(w!("mfplat.dll")) }.is_ok() {
+        return true;
+    }
+    let answer = unsafe {
+        MessageBoxW(
+            None,
+            w!("Il manque les composants multimédia de Windows (mfplat.dll).
+
+C'est normal sur les éditions « N » de Windows. Pour les ajouter :
+Paramètres → Applications → Fonctionnalités facultatives → Ajouter une fonctionnalité → « Media Feature Pack », puis redémarre le PC.
+
+Ouvrir cette page des Paramètres maintenant ?"),
+            w!("MyStream — composant Windows manquant"),
+            MB_YESNO | MB_ICONWARNING,
+        )
+    };
+    if answer == IDYES {
+        let _ = std::process::Command::new("explorer").arg("ms-settings:optionalfeatures").spawn();
+    }
+    false
 }
 
 fn app_icon() -> std::sync::Arc<eframe::egui::IconData> {
