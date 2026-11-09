@@ -64,7 +64,7 @@ pub struct PendingRequest {
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Quality {
     /// 720p 30 fps — minimal GPU and bandwidth.
     Eco,
@@ -75,13 +75,6 @@ pub enum Quality {
 }
 
 impl Quality {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Quality::Eco => "Éco — 720p 30 i/s",
-            Quality::Standard => "Standard — 1080p 30 i/s",
-            Quality::Smooth => "Fluide — 1080p 60 i/s",
-        }
-    }
     pub fn video(&self) -> crate::media::pipeline::VideoSettings {
         let (fps, max_height, bitrate) = match self {
             Quality::Eco => (30, 720, 2_500_000),
@@ -122,6 +115,9 @@ pub struct Data {
     pub outgoing: Vec<String>,
     #[serde(default)]
     pub settings: Settings,
+    /// Welcome screen already shown.
+    #[serde(default)]
+    pub onboarded: bool,
 }
 
 impl Data {

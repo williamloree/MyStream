@@ -126,7 +126,7 @@ Variables de test : `MYSTREAM_AUTOSTART=1` partage le premier écran au démarra
 ```text
 src/
 ├── main.rs          point d'entrée, commandes de dev
-├── ui.rs            interface (egui)
+├── ui/              interface (egui) : mod.rs (écrans), theme.rs (design system)
 ├── net.rs           réseau pair-à-pair (iroh) : amis, droits, diffusion
 ├── store.rs         données locales et identité
 ├── selftest.rs      test de bout en bout
@@ -143,18 +143,22 @@ src/
 
 ## 🗺️ Et après ?
 
-### v2 — une interface toute neuve
+### v2 — une interface toute neuve ✅ (0.2)
 
-La v1 a une interface fonctionnelle mais brute. La v2 la refait de zéro, en restant aussi légère :
+- [x] Design soigné : thème sombre, polices et icônes natives de Windows, animations discrètes
+- [x] Liste d'amis claire : qui est en direct, en ligne ou hors ligne, avec avatars
+- [x] Sélecteur de source avec miniatures des écrans et fenêtres
+- [x] Barre de contrôle flottante pendant le visionnage (volume, capture, plein écran)
+- [x] Assistant de premier lancement (pseudo, code ami, premier partage)
+- [x] Fenêtres claires pour ajouter un ami, accepter un spectateur, retirer un ami
+- [x] Page Paramètres (pseudo, code, volume, captures, mises à jour)
 
-- [ ] Design soigné : thème clair/sombre, typographie propre, animations discrètes
-- [ ] Écran d'accueil : qui est en ligne, qui streame, en un coup d'œil
-- [ ] Cartes d'amis avec avatar et aperçu miniature de leur partage
-- [ ] Sélecteur de source avec miniatures des écrans et fenêtres
-- [ ] Barre de contrôle flottante pendant le visionnage (volume, capture, plein écran)
+### Ensuite
+
 - [ ] Notifications Windows natives (« Léa partage son écran »)
-- [ ] Assistant de premier lancement (pseudo, pare-feu, premier ami)
 - [ ] Réduction dans la zone de notification
+- [ ] Aperçu miniature du partage de tes amis
+- [ ] Thème clair
 
 ### Plus tard
 

@@ -60,7 +60,7 @@ fn run_app(profile: Option<&str>) -> anyhow::Result<()> {
         &title,
         options,
         Box::new(move |cc| {
-            install_fonts(&cc.egui_ctx);
+            ui::theme::install(&cc.egui_ctx);
             let ctx = cc.egui_ctx.clone();
             let (tx, rx) = std::sync::mpsc::channel();
             let node = handle.block_on(net::Node::start(store, tx, move || ctx.request_repaint()))?;
@@ -78,23 +78,6 @@ fn app_icon() -> std::sync::Arc<eframe::egui::IconData> {
         Ok(i) => eframe::egui::IconData { width: i.width(), height: i.height(), rgba: i.into_raw() },
         Err(_) => eframe::egui::IconData::default(),
     })
-}
-
-/// Adds Windows' symbol/emoji fonts as fallbacks (icons, emoji in window
-/// titles) without loading every system font.
-fn install_fonts(ctx: &eframe::egui::Context) {
-    use eframe::egui::{FontData, FontDefinitions, FontFamily};
-    let mut fonts = FontDefinitions::default();
-    let dir = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap_or_else(|| r"C:\Windows".into())).join("Fonts");
-    for file in ["seguisym.ttf", "seguiemj.ttf"] {
-        if let Ok(bytes) = std::fs::read(dir.join(file)) {
-            fonts.font_data.insert(file.into(), std::sync::Arc::new(FontData::from_owned(bytes)));
-            for fam in [FontFamily::Proportional, FontFamily::Monospace] {
-                fonts.families.entry(fam).or_default().push(file.into());
-            }
-        }
-    }
-    ctx.set_fonts(fonts);
 }
 
 /// `mystream bench [secondes] [fps] [hauteur max] [kbps]`: capture the primary
