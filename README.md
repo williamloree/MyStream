@@ -1,0 +1,172 @@
+<div align="center">
+
+<img src="assets/logo.svg" alt="MyStream" width="128" height="128">
+
+# MyStream
+
+**Partage ton écran avec tes potes, pas les ressources de ton PC.**
+
+Léger · Pair-à-pair · Sans serveur · Open source
+
+[![Licence MIT](https://img.shields.io/badge/licence-MIT-5865F2)](LICENSE)
+![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-9B5CF6)
+![Rust](https://img.shields.io/badge/fait%20en-Rust-3BA55D)
+
+*Peer-to-peer screen sharing between friends that barely touches your GPU.*
+
+</div>
+
+---
+
+## 🎮 Pourquoi MyStream ?
+
+Tu lances un partage d'écran pendant une partie et ton jeu se met à ramer. La plupart des apps de discussion font tourner un navigateur complet pour streamer, et elles ajoutent des copies et des traitements graphiques au passage.
+
+MyStream fait une seule chose, bien : **prendre ton écran et l'envoyer à tes amis en dérangeant le moins possible ton PC.** L'image reste sur la carte graphique du début à la fin. L'encodage est confié à la petite puce vidéo dédiée que toutes les cartes récentes possèdent. Le moteur 3D, celui dont tes jeux ont besoin, reste presque au repos.
+
+Et quand ton écran ne bouge pas ? MyStream n'encode rien et n'envoie rien. Zéro.
+
+## ✨ Ce que ça fait
+
+| | |
+| --- | --- |
+| 🖥️ **Écran ou fenêtre** | Partage un écran entier ou une seule appli, curseur inclus |
+| 🔊 **Le son** | Le son de ton PC, sans écho (MyStream ne capte pas son propre son) |
+| 🤝 **Codes amis** | Envoie ton code `ms-…` une fois sur Discord ou WhatsApp, il est valable pour toujours |
+| 🔐 **Tes règles** | Pour chaque ami : *Demander*, *Toujours autoriser* ou *Bloqué* |
+| 👥 **Groupes** | « Copine », « Potes coop »… Choisis qui voit chaque partage |
+| 📸 **Captures** | Envoie une capture HD à un groupe, ou garde l'image du stream que tu regardes |
+| ⚡ **3 qualités** | Éco 720p30 · Standard 1080p30 · Fluide 1080p60 |
+| 🌍 **Sans serveur** | Connexion directe entre vous, chiffrée de bout en bout |
+
+## 📊 Combien ça consomme ?
+
+Estimations pour un écran qui bouge en permanence (le pire cas). Elles s'appuient sur nos mesures et varient selon la génération de la carte graphique.
+
+| Qualité | Moteur 3D (jeux) | Puce vidéo dédiée | Processeur | Débit envoyé |
+| --- | --- | --- | --- | --- |
+| Éco 720p30 | < 1 % | ~ 3–6 % | < 1 % | ~ 1–2,5 Mb/s |
+| Standard 1080p30 | < 1 % | ~ 6–12 % | < 1 % | ~ 2–5 Mb/s |
+| Fluide 1080p60 | ~ 1 % | ~ 10–20 % | < 1 % | ~ 4–9 Mb/s |
+| Écran immobile | 0 % | 0 % | ~ 0 % | ~ 0 |
+
+- **Mémoire** : environ 90 Mo au repos, 200 à 300 Mo pendant un partage ou un visionnage.
+- **Côté spectateur** : environ 1 % du moteur 3D. Le décodage se fait sur la puce vidéo.
+- **Plusieurs spectateurs** : l'image est encodée une seule fois. Seul le débit envoyé est multiplié par le nombre de spectateurs.
+
+> 💡 Dans le Gestionnaire des tâches, la colonne « GPU » affiche le moteur le plus chargé. Pour voir ce qui touche vraiment tes jeux, ouvre *Performance → GPU* et regarde le graphe **3D**.
+
+## 🚀 Démarrer en 30 secondes
+
+1. Télécharge `mystream.exe` dans les [**Releases**](../../releases). Aucune installation.
+2. Lance-le et **autorise-le dans le pare-feu Windows**. Sans ça, la connexion passe par un relais plus lent.
+3. Clique sur **📋 Copier** à côté de ton code ami et envoie-le à tes potes.
+4. Ils collent ton code dans *Ajouter un ami*. Tu acceptes.
+5. Clique sur **▶ Démarrer le partage**. Tes amis voient un bouton rouge **Regarder** à côté de ton nom.
+
+**Astuces** : double-clic sur l'image = plein écran, `Échap` pour sortir. Clic droit sur un ami = ses droits.
+
+**Prérequis** : Windows 10 (version 2004 ou plus récente) ou Windows 11, et une carte graphique de moins de 10 ans environ. NVIDIA, AMD et Intel sont tous pris en charge.
+
+## 🧠 Comment ça marche
+
+```text
+   TOI                                                 TON AMI
+   ───                                                 ───────
+   Capture Windows (l'image reste sur le GPU)          Réception
+     → conversion couleur sur la puce vidéo              → décodage sur la puce vidéo
+     → encodage H.264 matériel                           → affichage
+     → envoi chiffré, en direct ou via relais  ──────▶
+   Son du PC → Opus (léger, sur le processeur) ──────▶  → haut-parleurs
+```
+
+- **Pas de serveur MyStream.** Ton identité est une clé cryptographique créée sur ton PC. Tes amis te retrouvent grâce à l'infrastructure publique d'[iroh](https://iroh.computer). La connexion est directe dès que possible ; sinon elle passe par un relais qui ne voit que des données chiffrées.
+- **Une image = un flux réseau indépendant.** Une image en retard ne bloque pas les suivantes. Si un spectateur décroche, il repart de l'image complète suivante, sans ralentir les autres.
+- **L'interface dort.** Elle ne se redessine que lorsqu'il se passe quelque chose.
+
+## 🗂️ Où sont mes fichiers ?
+
+| Quoi | Où |
+| --- | --- |
+| Captures envoyées et reçues | `Images\MyStream\` |
+| Amis, groupes, réglages | `%APPDATA%\MyStream\data.json` |
+| Ton identité | `%APPDATA%\MyStream\secret.key` |
+
+> ⚠️ `secret.key` **est** ton identité. Ne le partage jamais. Si tu le perds, tes amis devront t'ajouter à nouveau.
+
+## 🛠️ Pour les développeurs
+
+**Compiler** : il faut [Rust](https://rustup.rs), les Visual Studio Build Tools (C++) et CMake.
+
+```powershell
+$env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"   # seulement avec CMake 4.x
+cargo build --release
+.\target\release\mystream.exe
+```
+
+**Commandes utiles**
+
+| Commande | Rôle |
+| --- | --- |
+| `mystream selftest` | Test complet : deux identités locales via le vrai réseau (amis, partage, visionnage, capture) |
+| `mystream bench [s] [fps] [hauteur] [kbps] [force]` | Capture + encodage seuls, avec statistiques |
+| `mystream loopback` | Capture → encodage → décodage, enregistre `loopback.png` |
+| `mystream audiotest` | Capture le son 5 s et le rejoue |
+| `mystream --profile <nom>` | Lance une identité séparée (plusieurs instances sur un PC) |
+
+Variables de test : `MYSTREAM_AUTOSTART=1` partage le premier écran au démarrage, `MYSTREAM_AUTOWATCH=1` regarde le premier ami en direct.
+
+**Organisation du code**
+
+```text
+src/
+├── main.rs          point d'entrée, commandes de dev
+├── ui.rs            interface (egui)
+├── net.rs           réseau pair-à-pair (iroh) : amis, droits, diffusion
+├── store.rs         données locales et identité
+├── selftest.rs      test de bout en bout
+└── media/
+    ├── capture.rs   capture Windows.Graphics.Capture
+    ├── d3d.rs       Direct3D 11 et conversion couleur sur GPU
+    ├── pipeline.rs  capture → conversion → encodage
+    ├── encoder.rs   encodeur H.264 matériel (Media Foundation)
+    ├── decoder.rs   décodeur H.264 matériel
+    └── audio.rs     capture et lecture du son, Opus
+```
+
+## 🗺️ Et après ?
+
+### v2 — une interface toute neuve
+
+La v1 a une interface fonctionnelle mais brute. La v2 la refait de zéro, en restant aussi légère :
+
+- [ ] Design soigné : thème clair/sombre, typographie propre, animations discrètes
+- [ ] Écran d'accueil : qui est en ligne, qui streame, en un coup d'œil
+- [ ] Cartes d'amis avec avatar et aperçu miniature de leur partage
+- [ ] Sélecteur de source avec miniatures des écrans et fenêtres
+- [ ] Barre de contrôle flottante pendant le visionnage (volume, capture, plein écran)
+- [ ] Notifications Windows natives (« Léa partage son écran »)
+- [ ] Assistant de premier lancement (pseudo, pare-feu, premier ami)
+- [ ] Réduction dans la zone de notification
+
+### Plus tard
+
+- [ ] Linux et macOS
+- [ ] Relais auto-hébergeable, réglable dans l'app
+- [ ] Groupes partagés, synchronisés entre membres
+- [ ] AV1 / HEVC sur les cartes compatibles
+- [ ] Son d'une seule application quand on partage une fenêtre
+
+## 🤝 Contribuer
+
+Les issues et pull requests sont les bienvenues. Avant de proposer un changement, lance `mystream selftest`. Si tu touches au pipeline vidéo, vérifie la consommation avec `mystream bench 15 30 1080 5000 force` et le graphe **3D** du Gestionnaire des tâches.
+
+## 📄 Licence
+
+[MIT](LICENSE). Utilise-le, modifie-le, partage-le.
+
+<div align="center">
+<img src="assets/logo.svg" alt="" width="32" height="32">
+<br>
+<sub>Fait pour créer des souvenirs avec ses potes, pas pour faire chauffer sa carte graphique.</sub>
+</div>
